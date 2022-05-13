@@ -1,16 +1,17 @@
 CC=clang++
 OPTS=-std=c++14 -Wall -Werror
-EXE=main
+SERVER_EXE=server
+CLIENT_EXE=client
 OBJ=# add *.o files here
 
-all: $(EXE)
+all: $(SERVER_EXE)
 
-$(EXE): main.cc $(OBJ)
-	$(CC) $(OPTS) -o $(EXE) main.cc $(OBJ)
+$(SERVER_EXE): server.cc $(OBJ)
+	$(CC) $(OPTS) -o $(SERVER_EXE) server.cc $(OBJ)
 
 # Copy for each *.o file
 # example.o: src/example.cc
 # 	$(CC) $(OPTS) -c src/example.cc
 
 clean:
-	rm -rf $(EXE) *.o
+	rm -rf $(SERVER_EXE) $(CLIENT_EXE) *.o
