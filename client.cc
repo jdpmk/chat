@@ -18,7 +18,6 @@ int main(int argc, char* argv[]) {
     addrinfo hints;
 
     memset(&hints, 0, sizeof(hints));
-    hints.ai_flags    = AI_PASSIVE;  // for use in bind(2)
     hints.ai_family   = PF_INET;     // protocol
     hints.ai_socktype = SOCK_STREAM; // sequenced connection
     hints.ai_protocol = IPPROTO_TCP; // tcp protocol
@@ -42,52 +41,19 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Created socket: " << sd << std::endl;
 
-    // bind(2) - bind socket to a specific port (>1023)
-    error = bind(sd, res->ai_addr, res->ai_addrlen);
+    // connect(2) - initiate a socket connection
+    error = connect(sd, res->ai_addr, res->ai_addrlen);
     if (error == -1) {
-        perror("Unable to bind socket to port\n");
-        exit(1);
-    }
-
-    // listen(2) - listen for incoming connections on the socket
-    error = listen(sd, 5);
-    if (error == -1) {
-        perror("Unable to listen with socket\n");
-        exit(1);
-    }
-
-    std::cout << "Listening on socket: " << sd << std::endl;
-
-    // accept(2) - accepting an incoming connection on the socket
-    sockaddr_storage address;
-    socklen_t address_len = sizeof(address);
-    int cd = accept(sd, (sockaddr*) &address, &address_len);
-    if (cd == -1) {
-        perror("Unable to accept socket\n");
+        perror("Unable to initial connection on socket\n");
         exit(1);
     }
 
     char* recv_msg = new char[256];
 
-    std::cout << "Accepted socket: " << cd << std::endl;
-
-    // send(2) - send a message on the socket
-    const char* send_msg = "Hello from the server!";
-    len = strlen(send_msg);
-
-    bytes_sent = send(cd,       // socket
-                      send_msg, // buffer to store message to send
-                      len,      // length of message
-                      0);       // flags
-    if (bytes_sent == -1) {
-        perror("Unable to send message\n");
-        exit(1);
-    }
-
-    std::cout << "Sent message: " << send_msg << std::endl;
+    std::cout << "Established socket connection" << std::endl;
 
     // recv(2) - receive a message on the socket
-    bytes_received = recv(cd,       // socket
+    bytes_received = recv(sd,       // socket
                           recv_msg, // buffer to store received message
                           256,      // max length of buffer
                           0);       // flags
@@ -98,9 +64,23 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Received message: " << recv_msg << std::endl;
 
+    // send(2) - send a message on the socket
+    const char* send_msg = "Hello from the client!";
+    len = strlen(send_msg);
+
+    bytes_sent = send(sd,       // socket
+                      send_msg, // buffer to store message to send
+                      len,      // length of message
+                      0);       // flags
+    if (bytes_sent == -1) {
+        perror("Unable to send message\n");
+        exit(1);
+    }
+
+    std::cout << "Sent message: " << send_msg << std::endl;
+
     // Clean up descriptors, memory
     delete[] recv_msg;
-    close(cd);
     close(sd);
     freeaddrinfo(res);
 
