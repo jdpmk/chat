@@ -9,9 +9,7 @@
 
 int main(int argc, char* argv[]) {
     int error;
-    int len;
     ssize_t bytes_sent;
-    ssize_t bytes_received;
 
     // getaddrinfo(3) - set up structs
     addrinfo* res;
@@ -44,43 +42,39 @@ int main(int argc, char* argv[]) {
     // connect(2) - initiate a socket connection
     error = connect(sd, res->ai_addr, res->ai_addrlen);
     if (error == -1) {
-        perror("Unable to initial connection on socket\n");
+        perror("Unable to initialize connection on socket\n");
         exit(1);
     }
-
-    char* recv_msg = new char[256];
 
     std::cout << "Established socket connection" << std::endl;
 
-    // recv(2) - receive a message on the socket
-    bytes_received = recv(sd,       // socket
-                          recv_msg, // buffer to store received message
-                          256,      // max length of buffer
+    char* send_msg = new char[256];
+    size_t len;
+
+    while (true) {
+        // Get input from stdin
+        printf(">> ");
+        fflush(stdin);
+        getline(&send_msg, &len, stdin);
+
+        // send(2) - send a message on the socket
+        bytes_sent = send(sd,       // socket
+                          send_msg, // buffer to store message to send
+                          len,      // length of message
                           0);       // flags
-    if (bytes_received <= 0) {
-        perror("Unable to receive message\n");
-        exit(1);
+        // TODO: Gracefully detect and handle unexpected server crashes
+        //       Try checking bytes_sent == 0?
+        if (bytes_sent == -1) {
+            perror("Unable to send message\n");
+            exit(1);
+        }
+
+        printf("[to %d] %s", sd, send_msg);
+        fflush(stdout);
     }
-
-    std::cout << "Received message: " << recv_msg << std::endl;
-
-    // send(2) - send a message on the socket
-    const char* send_msg = "Hello from the client!";
-    len = strlen(send_msg);
-
-    bytes_sent = send(sd,       // socket
-                      send_msg, // buffer to store message to send
-                      len,      // length of message
-                      0);       // flags
-    if (bytes_sent == -1) {
-        perror("Unable to send message\n");
-        exit(1);
-    }
-
-    std::cout << "Sent message: " << send_msg << std::endl;
 
     // Clean up descriptors, memory
-    delete[] recv_msg;
+    delete[] send_msg;
     close(sd);
     freeaddrinfo(res);
 
