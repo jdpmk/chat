@@ -1,4 +1,5 @@
 #include <netdb.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -6,12 +7,45 @@
 #include <unistd.h>
 
 #include <iostream>
+#include <vector>
+
+void* handle_client(void* arg) {
+    int* cd_ptr = (int*) arg;
+    int cd = *cd_ptr;
+
+    char* recv_msg = new char[256];
+    ssize_t bytes_received;
+
+    while (true) {
+        // recv(2) - receive a message on the socket
+        bytes_received = recv(cd,       // socket
+                              recv_msg, // buffer to store received message
+                              256,      // max length of buffer
+                              0);       // flags
+        if (bytes_received == 0) {
+            printf("[%d] Client has closed the connection\n", cd);
+            break;
+        } else if (bytes_received < 0) {
+            perror("Unable to receive message\n");
+            // This thread finishes but other threads may continue
+            // Clean up memory the thread owns, and exit the thread
+            delete[] recv_msg;
+            pthread_exit(NULL);
+        }
+
+        printf("[from %d] %s", cd, recv_msg);
+        fflush(stdout);
+    }
+
+    delete[] recv_msg;
+    delete cd_ptr;
+
+    return NULL;
+}
 
 int main(int argc, char* argv[]) {
     int error;
-    int len;
-    ssize_t bytes_sent;
-    ssize_t bytes_received;
+    std::vector<pthread_t*> threads;
 
     // getaddrinfo(3) - set up structs
     addrinfo* res;
@@ -49,58 +83,41 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-    // listen(2) - listen for incoming connections on the socket
-    error = listen(sd, 5);
-    if (error == -1) {
-        perror("Unable to listen with socket\n");
-        exit(1);
+    while (true) {
+        // listen(2) - listen for incoming connections on the socket
+        error = listen(sd, 5);
+        if (error == -1) {
+            perror("Unable to listen with socket\n");
+            exit(1);
+        }
+
+        std::cout << "Listening on socket: " << sd << std::endl;
+
+        // accept(2) - accepting an incoming connection on the socket
+        sockaddr_storage address;
+        socklen_t address_len = sizeof(address);
+        int _cd = accept(sd, (sockaddr*) &address, &address_len);
+        if (_cd == -1) {
+            perror("Unable to accept socket\n");
+            exit(1);
+        }
+
+        std::cout << "Accepted socket: " << _cd << std::endl;
+
+        // Heap allocate client descriptor to pass as void* to pthread
+        int* cd = new int;
+        *cd = _cd;
+
+        // Process each client in a separate pthread
+        pthread_t* thread = new pthread_t;
+        threads.push_back(thread);
+        pthread_create(thread, NULL, handle_client, (void*) cd);
     }
-
-    std::cout << "Listening on socket: " << sd << std::endl;
-
-    // accept(2) - accepting an incoming connection on the socket
-    sockaddr_storage address;
-    socklen_t address_len = sizeof(address);
-    int cd = accept(sd, (sockaddr*) &address, &address_len);
-    if (cd == -1) {
-        perror("Unable to accept socket\n");
-        exit(1);
-    }
-
-    char* recv_msg = new char[256];
-
-    std::cout << "Accepted socket: " << cd << std::endl;
-
-    // send(2) - send a message on the socket
-    const char* send_msg = "Hello from the server!";
-    len = strlen(send_msg);
-
-    bytes_sent = send(cd,       // socket
-                      send_msg, // buffer to store message to send
-                      len,      // length of message
-                      0);       // flags
-    if (bytes_sent == -1) {
-        perror("Unable to send message\n");
-        exit(1);
-    }
-
-    std::cout << "Sent message: " << send_msg << std::endl;
-
-    // recv(2) - receive a message on the socket
-    bytes_received = recv(cd,       // socket
-                          recv_msg, // buffer to store received message
-                          256,      // max length of buffer
-                          0);       // flags
-    if (bytes_received <= 0) {
-        perror("Unable to receive message\n");
-        exit(1);
-    }
-
-    std::cout << "Received message: " << recv_msg << std::endl;
 
     // Clean up descriptors, memory
-    delete[] recv_msg;
-    close(cd);
+    for (pthread_t* thread : threads) {
+        delete thread;
+    }
     close(sd);
     freeaddrinfo(res);
 
