@@ -10,6 +10,12 @@
 #include <set>
 #include <vector>
 
+struct pending_msg {
+    int source_cd; // sender client
+    char* msg;     // message
+    size_t len;    // message length
+};
+
 std::vector<int> sockets;
 pthread_mutex_t sockets_mutex;
 
@@ -21,11 +27,67 @@ sem_t* pending_sockets_empty;
 sem_t* pending_sockets_full;
 
 // TODO: Use a queue as the buffer
-// constexpr int N_PENDING_MSGS = 5;
-std::vector<const char*> pending_msgs;
+constexpr int N_PENDING_MSGS = 3;
+std::vector<const pending_msg*> pending_msgs;
 pthread_mutex_t pending_msgs_mutex;
 sem_t* pending_msgs_empty;
 sem_t* pending_msgs_full;
+
+void* message_broadcaster(void* arg) {
+    (void) arg;
+
+    const pending_msg*  msg;
+    ssize_t bytes_sent;
+
+    while (true) {
+        // Consume the latest message
+        sem_wait(pending_msgs_full);
+        pthread_mutex_lock(&pending_msgs_mutex);
+        msg = pending_msgs.back();
+        pending_msgs.pop_back();
+        pthread_mutex_unlock(&pending_msgs_mutex);
+        sem_post(pending_msgs_empty);
+
+        char* formatted_msg;
+        ssize_t formatted_len;
+
+        asprintf(&formatted_msg,
+                 "[Client %d] %s",
+                 msg->source_cd,
+                 msg->msg);
+        formatted_len = strlen(formatted_msg);
+
+        printf("[Message Broadcaster] Broadcasting message: %s\n", formatted_msg);
+
+        pthread_mutex_lock(&sockets_mutex);
+        for (int cd : sockets) {
+            // Avoid broadcasting the message to the client which sent it
+            if (cd == msg->source_cd) {
+                continue;
+            }
+
+            bytes_sent = send(cd,            // socket
+                              formatted_msg, // message
+                              formatted_len, // length
+                              0);            // flags
+            // TODO: Gracefully detect and handle unexpected server crashes
+            //       Try checking bytes_sent == 0?
+            if (bytes_sent == -1) {
+                pthread_mutex_unlock(&sockets_mutex);
+                perror("Unable to send message");
+                exit(1);
+            }
+        }
+        pthread_mutex_unlock(&sockets_mutex);
+
+        free(formatted_msg);
+        delete[] msg->msg;
+        delete msg;
+    }
+
+    return NULL;
+}
+
 
 void* client_handler(void* arg) {
     (void) arg;
@@ -35,8 +97,6 @@ void* client_handler(void* arg) {
     int cd;
 
     while (true) {
-        // TODO: Debug another message being sent before this resolves
-
         // Consume the latest socket
         sem_wait(pending_sockets_full);
         pthread_mutex_lock(&pending_sockets_mutex);
@@ -51,7 +111,7 @@ void* client_handler(void* arg) {
                               256,      // max length of buffer
                               0);       // flags
         if (bytes_received == 0) {
-            printf("[%d] Client has closed the connection\n", cd);
+            printf("[Client Handler] Client %d has closed the connection\n", cd);
 
             pthread_mutex_lock(&sockets_mutex);
             sockets.erase(std::find(sockets.begin(), sockets.end(), cd));
@@ -71,6 +131,19 @@ void* client_handler(void* arg) {
         recv_msg[bytes_received] = '\0';
 
         printf("[Client Handler] Handled message from %d: %s\n", cd, recv_msg);
+
+        pending_msg* msg = new pending_msg;
+        msg->source_cd = cd;
+        msg->msg = new char[256];
+        msg->len = bytes_received;
+        strcpy(msg->msg, recv_msg);
+
+        // Signal to message broadcaster threads
+        sem_wait(pending_msgs_empty);
+        pthread_mutex_lock(&pending_msgs_mutex);
+        pending_msgs.push_back(msg);
+        pthread_mutex_unlock(&pending_msgs_mutex);
+        sem_post(pending_msgs_full);
     }
 
     return NULL;
@@ -153,6 +226,17 @@ int main(int argc, char* argv[]) {
                                     0,
                                     0);
 
+    sem_unlink("pending_msgs_empty");
+    sem_unlink("pending_msgs_full");
+    pending_msgs_empty = sem_open("pending_msgs_empty",
+                                  O_CREAT,
+                                  0,
+                                  N_PENDING_MSGS);
+    pending_msgs_full = sem_open("pending_msgs_full",
+                                 O_CREAT,
+                                 0,
+                                 0);
+
     int error;
 
     // getaddrinfo(3) - set up structs
@@ -210,14 +294,18 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-    // Initialize poller thread
-    pthread_t poller_thread;
-    pthread_create(&poller_thread, NULL, poller, NULL);
+    // Initialize message broadcaster thread
+    pthread_t message_broadcaster_thread;
+    pthread_create(&message_broadcaster_thread, NULL, message_broadcaster, NULL);
 
     // Initialize client handler thread
     // TODO: Make this a configurable thread pool
     pthread_t client_handler_thread;
     pthread_create(&client_handler_thread, NULL, client_handler, NULL);
+
+    // Initialize poller thread
+    pthread_t poller_thread;
+    pthread_create(&poller_thread, NULL, poller, NULL);
 
     while (true) {
         // accept(2) - accepting an incoming connection on the socket
