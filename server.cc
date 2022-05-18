@@ -95,7 +95,7 @@ void* poller(void* arg) {
 
         // select(2) - determine which sockets are pending
         struct timeval timeout;
-        timeout.tv_sec = 1;
+        timeout.tv_sec = 0;
         error = select(FD_SETSIZE, // maximum number of descriptors
                        &fds,       // read descriptors
                        NULL,       // write descriptors
