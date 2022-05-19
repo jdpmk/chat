@@ -7,8 +7,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <queue>
 #include <set>
-#include <vector>
 
 struct pending_msg {
     int source_cd; // sender client
@@ -19,16 +19,14 @@ struct pending_msg {
 std::vector<int> sockets;
 pthread_mutex_t sockets_mutex;
 
-// TODO: Use a queue as the buffer
 constexpr int N_PENDING_SOCKETS = 5;
-std::vector<int> pending_sockets;
+std::queue<int> pending_sockets;
 pthread_mutex_t pending_sockets_mutex;
 sem_t* pending_sockets_empty;
 sem_t* pending_sockets_full;
 
-// TODO: Use a queue as the buffer
 constexpr int N_PENDING_MSGS = 3;
-std::vector<const pending_msg*> pending_msgs;
+std::queue<const pending_msg*> pending_msgs;
 pthread_mutex_t pending_msgs_mutex;
 sem_t* pending_msgs_empty;
 sem_t* pending_msgs_full;
@@ -43,8 +41,8 @@ void* message_broadcaster(void* arg) {
         // Consume the latest message
         sem_wait(pending_msgs_full);
         pthread_mutex_lock(&pending_msgs_mutex);
-        msg = pending_msgs.back();
-        pending_msgs.pop_back();
+        msg = pending_msgs.front();
+        pending_msgs.pop();
         pthread_mutex_unlock(&pending_msgs_mutex);
         sem_post(pending_msgs_empty);
 
@@ -100,8 +98,8 @@ void* client_handler(void* arg) {
         // Consume the latest socket
         sem_wait(pending_sockets_full);
         pthread_mutex_lock(&pending_sockets_mutex);
-        cd = pending_sockets.back();
-        pending_sockets.pop_back();
+        cd = pending_sockets.front();
+        pending_sockets.pop();
         pthread_mutex_unlock(&pending_sockets_mutex);
         sem_post(pending_sockets_empty);
 
@@ -141,7 +139,7 @@ void* client_handler(void* arg) {
         // Signal to message broadcaster threads
         sem_wait(pending_msgs_empty);
         pthread_mutex_lock(&pending_msgs_mutex);
-        pending_msgs.push_back(msg);
+        pending_msgs.push(msg);
         pthread_mutex_unlock(&pending_msgs_mutex);
         sem_post(pending_msgs_full);
     }
@@ -190,7 +188,7 @@ void* poller(void* arg) {
                     // Signal to client handler threads
                     sem_wait(pending_sockets_empty);
                     pthread_mutex_lock(&pending_sockets_mutex);
-                    pending_sockets.push_back(cd);
+                    pending_sockets.push(cd);
                     pthread_mutex_unlock(&pending_sockets_mutex);
                     sem_post(pending_sockets_full);
                 }
