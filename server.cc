@@ -20,12 +20,18 @@ std::vector<int> sockets;
 pthread_mutex_t sockets_mutex;
 
 constexpr int N_PENDING_SOCKETS = 5;
+const char* PENDING_SOCKETS_EMPTY = "pending_sockets_empty";
+const char* PENDING_SOCKETS_FULL = "pending_sockets_full";
+
 std::queue<int> pending_sockets;
 pthread_mutex_t pending_sockets_mutex;
 sem_t* pending_sockets_empty;
 sem_t* pending_sockets_full;
 
 constexpr int N_PENDING_MSGS = 3;
+const char* PENDING_MSGS_EMPTY = "pending_msgs_empty";
+const char* PENDING_MSGS_FULL = "pending_msgs_full";
+
 std::queue<const pending_msg*> pending_msgs;
 pthread_mutex_t pending_msgs_mutex;
 sem_t* pending_msgs_empty;
@@ -212,25 +218,24 @@ int main(int argc, char* argv[]) {
     pthread_mutex_init(&pending_sockets_mutex, NULL);
     pthread_mutex_init(&pending_msgs_mutex, NULL);
 
-    // TODO: Move names to constants
-    sem_unlink("pending_sockets_empty");
-    sem_unlink("pending_sockets_full");
-    pending_sockets_empty = sem_open("pending_sockets_empty",
+    sem_unlink(PENDING_SOCKETS_EMPTY);
+    sem_unlink(PENDING_SOCKETS_FULL);
+    pending_sockets_empty = sem_open(PENDING_SOCKETS_EMPTY,
                                      O_CREAT,
                                      0,
                                      N_PENDING_SOCKETS);
-    pending_sockets_full = sem_open("pending_sockets_full",
+    pending_sockets_full = sem_open(PENDING_SOCKETS_FULL,
                                     O_CREAT,
                                     0,
                                     0);
 
-    sem_unlink("pending_msgs_empty");
-    sem_unlink("pending_msgs_full");
-    pending_msgs_empty = sem_open("pending_msgs_empty",
+    sem_unlink(PENDING_MSGS_EMPTY);
+    sem_unlink(PENDING_MSGS_FULL);
+    pending_msgs_empty = sem_open(PENDING_MSGS_EMPTY,
                                   O_CREAT,
                                   0,
                                   N_PENDING_MSGS);
-    pending_msgs_full = sem_open("pending_msgs_full",
+    pending_msgs_full = sem_open(PENDING_MSGS_FULL,
                                  O_CREAT,
                                  0,
                                  0);
@@ -323,6 +328,7 @@ int main(int argc, char* argv[]) {
         pthread_mutex_unlock(&sockets_mutex);
     }
 
+    // TODO: Handle exits cleanly (e.g., ^C)
     // Clean up descriptors, memory
     close(sd);
     freeaddrinfo(res);
