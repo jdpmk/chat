@@ -16,6 +16,8 @@ struct pending_msg {
     size_t len;    // message length
 };
 
+constexpr int N_CLIENT_HANDLERS = 10;
+
 std::vector<int> sockets;
 pthread_mutex_t sockets_mutex;
 
@@ -94,7 +96,9 @@ void* message_broadcaster(void* arg) {
 
 
 void* client_handler(void* arg) {
-    (void) arg;
+    size_t* _id = (size_t*) arg;
+    size_t id = *_id;
+    delete _id;
 
     char* recv_msg = new char[256];
     ssize_t bytes_received;
@@ -115,7 +119,7 @@ void* client_handler(void* arg) {
                               256,      // max length of buffer
                               0);       // flags
         if (bytes_received == 0) {
-            printf("[Client Handler] Client %d has closed the connection\n", cd);
+            printf("[Client Handler %zu] Client %d has closed the connection\n", id, cd);
 
             pthread_mutex_lock(&sockets_mutex);
             sockets.erase(std::find(sockets.begin(), sockets.end(), cd));
@@ -134,7 +138,7 @@ void* client_handler(void* arg) {
         assert(bytes_received < 256);
         recv_msg[bytes_received] = '\0';
 
-        printf("[Client Handler] Handled message from %d: %s\n", cd, recv_msg);
+        printf("[Client Handler %zu] Handled message from %d: %s\n", id, cd, recv_msg);
 
         pending_msg* msg = new pending_msg;
         msg->source_cd = cd;
@@ -302,9 +306,10 @@ int main(int argc, char* argv[]) {
     pthread_create(&message_broadcaster_thread, NULL, message_broadcaster, NULL);
 
     // Initialize client handler thread
-    // TODO: Make this a configurable thread pool
-    pthread_t client_handler_thread;
-    pthread_create(&client_handler_thread, NULL, client_handler, NULL);
+    std::vector<pthread_t> client_handler_thread_pool(N_CLIENT_HANDLERS);
+    for (size_t i = 0; i < N_CLIENT_HANDLERS; i++) {
+        pthread_create(&client_handler_thread_pool[i], NULL, client_handler, (void*) new size_t(i));
+    }
 
     // Initialize poller thread
     pthread_t poller_thread;
