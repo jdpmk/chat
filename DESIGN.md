@@ -1,9 +1,3 @@
-# chat
-
-A chat server which processes incoming client messages with thread-safe queues and a thread pool, using network sockets, POSIX threads (`pthread.h`), and an implementation of the concurrent producer-consumer pattern.
-
-## Design
-
 ```
 .----------.            .---------------------------------------------------------------------------.
 |          |            |  recv()       server                                     server_  produce |
@@ -18,4 +12,3 @@ A chat server which processes incoming client messages with thread-safe queues a
 
    Client                                                 Server
 ```
-
